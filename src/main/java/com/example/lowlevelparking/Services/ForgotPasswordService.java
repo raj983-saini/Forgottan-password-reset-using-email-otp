@@ -1,14 +1,14 @@
 package com.example.lowlevelparking.Services;
 
+
 import com.example.lowlevelparking.Entities.OtpToken;
 import com.example.lowlevelparking.Repository.OtpTokenRepository;
 import com.example.lowlevelparking.Repository.UserRepository;
+import com.example.lowlevelparking.Services.EmailService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 
-import java.util.List;
-import java.util.Optional;
 import java.util.Random;
 
 @Service
@@ -16,70 +16,64 @@ public class ForgotPasswordService {
 
     @Autowired
     private UserRepository userRepository;
+
     @Autowired
     private PasswordEncoder passwordEncoder;
+
     @Autowired
     private OtpTokenRepository otpTokenRepository;
 
     @Autowired
     private EmailService emailService;
 
-    public  String emailCache;
-
     // Generate a random OTP
     private String generateOtp() {
-        Random random = new Random();
-        int otp = 100000 + random.nextInt(900000);
-        return String.valueOf(otp);
+        return String.valueOf(100000 + new Random().nextInt(900000));
     }
 
-    // Generate and send OTP to user email
+    // Send OTP to the user's email
     public void forgotPassword(String email) {
-        // Check if user exists with this email
-        if (!userRepository.findByEmail(email).isPresent()) {
+        // Verify user exists
+        if (!userRepository.existsByEmail(email)) {
             throw new RuntimeException("User not found with email: " + email);
         }
 
+        // Generate and save/update OTP
         String otp = generateOtp();
-        OtpToken otpToken = new OtpToken();
-        otpToken.setEmail(email);
+        OtpToken otpToken = otpTokenRepository.findByEmail(email);
+
+        if (otpToken == null) {
+            otpToken = new OtpToken();
+            otpToken.setEmail(email);
+        }
+
         otpToken.setOtp(otp);
         otpToken.setCreatedAt(System.currentTimeMillis());
         otpTokenRepository.save(otpToken);
-        emailCache = email;
+
         // Send the OTP via email
         emailService.sendOtpEmail(email, "Password Reset OTP", otp);
     }
 
-    //     Verify the OTP and reset the password
-// Verify the OTP and reset the password
+    // Verify OTP and reset the password
     public void verifyOtpResetPassword(String otp, String newPassword) {
-        String email = emailCache;
-        System.out.println("Verify " + email);
-        System.out.println("verify " + otp);
-        System.out.println(newPassword);
+        // Fetch and validate OTP
+        OtpToken otpToken = otpTokenRepository.findByOtp(otp);
 
-        // Fetch all OTPs associated with the email
-        List<OtpToken> otpTokens = otpTokenRepository.findByEmail(email);
-        System.out.println("find " + email);
-
-        if (otpTokens.isEmpty()) {
-            throw new RuntimeException("Invalid OTP or email");
-        }
-
-        // Get the most recent OTP token (assuming the list is ordered by creation time)
-        OtpToken otpToken = otpTokens.get(otpTokens.size() - 1);
-        long currentTime = System.currentTimeMillis();
-
-        // Check if OTP is correct and hasn't expired (e.g., 5 minutes)
-        if (!otpToken.getOtp().equals(otp) || (currentTime - otpToken.getCreatedAt()) > 5 * 60 * 1000) {
-            throw new RuntimeException("OTP is invalid or expired");
+        if (otpToken == null || isOtpExpired(otpToken)) {
+            throw new RuntimeException("Invalid or expired OTP");
         }
 
         // Reset the password
-        userRepository.updatePasswordByEmail(passwordEncoder.encode(newPassword), email);
+        userRepository.updatePasswordByEmail(passwordEncoder.encode(newPassword), otpToken.getEmail());
 
-        // Remove the OTP after successful password reset
+        // Remove OTP after successful password reset
         otpTokenRepository.delete(otpToken);
+    }
+
+    // Check if the OTP is expired
+    private boolean isOtpExpired(OtpToken otpToken) {
+        long expirationTimeInMillis = 5 * 60 * 1000; // 5 minutes
+        return System.currentTimeMillis() - otpToken.getCreatedAt() > expirationTimeInMillis;
     }
 }

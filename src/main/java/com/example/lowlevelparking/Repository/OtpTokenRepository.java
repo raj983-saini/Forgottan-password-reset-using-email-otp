@@ -8,5 +8,6 @@ import java.util.List;
 import java.util.Optional;
 
 public interface OtpTokenRepository extends CrudRepository<OtpToken, Long> {
-    public List<OtpToken> findByEmail(String email);
+     OtpToken findByEmail(String email);
+     OtpToken findByOtp(String otp);
 }
